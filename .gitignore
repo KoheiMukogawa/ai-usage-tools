@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.venv/
+*Zone.Identifier
+.DS_Store
+
+# WiFi等の実値はリポジトリに入れない
+secrets.py
