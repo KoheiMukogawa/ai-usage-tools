@@ -1,6 +1,6 @@
-# claude-usage-tools — Claude使用量ツール集
+# ai-usage-tools — AI使用量ツール集
 
-Claudeのトークン使用量を表示する自作ツール群。2026-07-05 に各所（`~/scripts`、旧 `~/projects/claude_clock_widget`、`homeproject/usage_display`）から集約。
+Claude と Codex のトークン使用量を表示する自作ツール群（旧名 claude-usage-tools）。2026-07-05 に各所（`~/scripts`、旧 `~/projects/claude_clock_widget`、`homeproject/usage_display`）から集約。
 
 ## 構成
 - `claude_usage.py` — 使用量取得の共通ライブラリ（下記ツールが同ディレクトリから import する。**分離しないこと**）
@@ -14,3 +14,4 @@ Claudeのトークン使用量を表示する自作ツール群。2026-07-05 に
 
 ## 経緯
 - **2026-07-05**: ホームディレクトリ整理の続きとして、散らばっていた使用量系プログラムをこのプロジェクトに集約。`claude_usage.py` の重複コピー（claude_clock_widget内、内容同一）は削除。
+- **2026-10-20**: Codex の使用量も扱う方針にしたため、リポジトリ名を `claude-usage-tools` → `ai-usage-tools` に変更。
