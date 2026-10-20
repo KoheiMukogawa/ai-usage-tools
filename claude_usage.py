@@ -51,7 +51,8 @@ def load_access_token() -> str:
         token = _load_keychain_token()
         if token:
             return token
-        raise UsageError(f"Credentials not found: {CREDENTIALS_PATH}\n"
+        where = f"Keychain ({KEYCHAIN_SERVICE})" if sys.platform == "darwin" else CREDENTIALS_PATH
+        raise UsageError(f"Credentials not found: {where}\n"
                          "Log in with Claude Code first (`claude` then /login).")
     try:
         with open(CREDENTIALS_PATH) as f:
