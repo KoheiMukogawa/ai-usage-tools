@@ -1,9 +1,9 @@
 #!/usr/bin/env -S PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin python3
 # <swiftbar.title>AI Usage</swiftbar.title>
-# <swiftbar.desc>Claude / Codex remaining quota as ring gauges in the menu bar</swiftbar.desc>
+# <swiftbar.desc>Claude / Codex remaining quota as double-ring gauges in the menu bar</swiftbar.desc>
 # <swiftbar.hideRunInTerminal>true</swiftbar.hideRunInTerminal>
 # <swiftbar.hideDisablePlugin>true</swiftbar.hideDisablePlugin>
-"""SwiftBar plugin — shows Claude and Codex 5h-window remaining % as ring gauges.
+"""SwiftBar plugin — shows Claude and Codex remaining % as double-ring gauges (outer 5h, inner weekly).
 
 Install: symlink this file into the SwiftBar plugin folder (the `1m` in the
 name is the refresh interval). It imports claude_usage / codex_usage from the
@@ -25,68 +25,74 @@ import codex_usage  # noqa: E402
 
 # Menu bar icon is 18pt tall; drawn at 2x and tagged 144dpi so it stays sharp on Retina
 SCALE = 2
-RING_PT = 16
-GAP_PT = 4
+GAUGE_PT = 18
+GAP_PT = 5
 HEIGHT_PT = 18
-RING_WIDTH_PT = 3.2
+# Double ring: outer = 5h window, inner = weekly window
+OUTER_WIDTH_PT = 2.8
+RING_GAP_PT = 1.2
+INNER_WIDTH_PT = 2.8
 SUPERSAMPLE = 4
 
-CLAUDE_RGB = (217, 119, 87)
-CODEX_RGB = (90, 160, 255)
+CLAUDE_RGB = (217, 119, 87)   # Claude brand orange #D97757
+CODEX_RGB = (16, 163, 127)    # ChatGPT green #10A37F (Codex has no brand accent of its own)
 LOW_RGB = (255, 85, 85)
 TRACK_RGBA = (128, 128, 128, 90)
 LOW_REMAINING = 20
 
 
-def _ring_coverage(px, py, cx, cy, r_out, r_in, frac):
-    """Return (on_arc, on_track) sample counts for one pixel."""
-    arc = track = 0
-    n = SUPERSAMPLE
-    for sy in range(n):
-        for sx in range(n):
-            dx = px + (sx + 0.5) / n - cx
-            dy = py + (sy + 0.5) / n - cy
-            d = math.hypot(dx, dy)
-            if not (r_in <= d <= r_out):
-                continue
+def _sample_color(dx, dy, bands):
+    """Return (rgb, alpha) of one sub-pixel sample, or None when it misses every band."""
+    d = math.hypot(dx, dy)
+    for r_out, r_in, frac, rgb in bands:
+        if r_in <= d <= r_out:
             # angle measured clockwise from 12 o'clock, 0..1
             a = (math.atan2(dx, -dy) / (2 * math.pi)) % 1.0
             if a < frac:
-                arc += 1
-            else:
-                track += 1
-    return arc, track
+                return rgb, 1.0
+            return TRACK_RGBA[:3], TRACK_RGBA[3] / 255
+    return None
 
 
-def render_icon(remaining: list[tuple[float | None, tuple[int, int, int]]]) -> bytes:
-    """Draw one ring per (remaining_pct, rgb) side by side and return PNG bytes."""
-    w = (len(remaining) * RING_PT + (len(remaining) - 1) * GAP_PT) * SCALE
-    h = HEIGHT_PT * SCALE
-    r_out = RING_PT * SCALE / 2 - 0.5
-    r_in = r_out - RING_WIDTH_PT * SCALE
-    pixels = bytearray(w * h * 4)
-    total = SUPERSAMPLE * SUPERSAMPLE
-
-    for i, (pct, rgb) in enumerate(remaining):
-        frac = 0.0 if pct is None else max(0.0, min(1.0, pct / 100))
-        if pct is not None and pct < LOW_REMAINING:
-            rgb = LOW_RGB
-        cx = (i * (RING_PT + GAP_PT) + RING_PT / 2) * SCALE
-        cy = h / 2
-        x0, x1 = int(cx - r_out - 1), int(cx + r_out + 2)
-        for py in range(h):
-            for px in range(max(0, x0), min(w, x1)):
-                arc, track = _ring_coverage(px, py, cx, cy, r_out, r_in, frac)
-                if not arc and not track:
-                    continue
-                a_arc = arc / total
-                a_track = track / total * TRACK_RGBA[3] / 255
-                alpha = a_arc + a_track
-                r = (rgb[0] * a_arc + TRACK_RGBA[0] * a_track) / alpha
-                g = (rgb[1] * a_arc + TRACK_RGBA[1] * a_track) / alpha
-                b = (rgb[2] * a_arc + TRACK_RGBA[2] * a_track) / alpha
+def _draw_gauge(pixels, w, h, cx, cy, bands):
+    r_max = bands[0][0]
+    n = SUPERSAMPLE
+    total = n * n
+    for py in range(h):
+        for px in range(max(0, int(cx - r_max - 1)), min(w, int(cx + r_max + 2))):
+            sr = sg = sb = sa = 0.0
+            for sy in range(n):
+                for sx in range(n):
+                    hit = _sample_color(px + (sx + 0.5) / n - cx, py + (sy + 0.5) / n - cy, bands)
+                    if hit:
+                        (r, g, b), a = hit
+                        sr, sg, sb, sa = sr + r * a, sg + g * a, sb + b * a, sa + a
+            if sa:
                 o = (py * w + px) * 4
-                pixels[o:o + 4] = bytes((round(r), round(g), round(b), round(alpha * 255)))
+                pixels[o:o + 4] = bytes((round(sr / sa), round(sg / sa), round(sb / sa),
+                                         round(sa / total * 255)))
+
+
+def render_icon(gauges: list[tuple[float | None, float | None, tuple[int, int, int]]]) -> bytes:
+    """Draw one double-ring gauge per (outer_pct, inner_pct, rgb) side by side; return PNG bytes."""
+    w = (len(gauges) * GAUGE_PT + (len(gauges) - 1) * GAP_PT) * SCALE
+    h = HEIGHT_PT * SCALE
+    outer_out = GAUGE_PT * SCALE / 2 - 0.5
+    outer_in = outer_out - OUTER_WIDTH_PT * SCALE
+    inner_out = outer_in - RING_GAP_PT * SCALE
+    inner_in = inner_out - INNER_WIDTH_PT * SCALE
+    pixels = bytearray(w * h * 4)
+
+    def band(r_out, r_in, pct, rgb):
+        frac = 0.0 if pct is None else max(0.0, min(1.0, pct / 100))
+        return r_out, r_in, frac, LOW_RGB if pct is not None and pct < LOW_REMAINING else rgb
+
+    for i, (outer_pct, inner_pct, rgb) in enumerate(gauges):
+        cx = (i * (GAUGE_PT + GAP_PT) + GAUGE_PT / 2) * SCALE
+        _draw_gauge(pixels, w, h, cx, h / 2, [
+            band(outer_out, outer_in, outer_pct, rgb),
+            band(inner_out, inner_in, inner_pct, rgb),
+        ])
 
     return _png(w, h, pixels)
 
@@ -142,12 +148,12 @@ def main():
     except codex_usage.CodexUsageError as e:
         codex, codex_err = [], f"Codex: {e}"
 
-    claude_left = _remaining(claude, "five_hour")
-    codex_left = _remaining(codex, "primary")
-    icon = base64.b64encode(render_icon([(claude_left, CLAUDE_RGB), (codex_left, CODEX_RGB)])).decode()
-    title = " ".join("--" if v is None else f"{v:.0f}" for v in (claude_left, codex_left))
+    icon = base64.b64encode(render_icon([
+        (_remaining(claude, "five_hour"), _remaining(claude, "seven_day"), CLAUDE_RGB),
+        (_remaining(codex, "primary"), _remaining(codex, "secondary"), CODEX_RGB),
+    ])).decode()
 
-    print(f"{title} | image={icon} font=Menlo size=11")
+    print(f" | image={icon}")
     print("---")
     for row in _menu_rows("Claude", claude, claude_err):
         print(row)
