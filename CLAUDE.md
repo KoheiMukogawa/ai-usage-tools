@@ -4,7 +4,7 @@ Claude と Codex のトークン使用量を表示する自作ツール群（旧
 
 ## 構成
 - `claude_usage.py` — 使用量取得の共通ライブラリ（下記ツールが同ディレクトリから import する。**分離しないこと**）。macOS では認証情報を Keychain（`Claude Code-credentials`）から読む
-- `codex_usage.py` — Codex 使用量の共通ライブラリ。API ではなく `~/.codex/sessions/` のログから最新の rate_limits を読むので、**値は最後に Codex を使った時点のもの**
+- `codex_usage.py` — Codex 使用量の共通ライブラリ。まず Codex CLI の `/status` と同じ非公式エンドポイント（`chatgpt.com/backend-api/wham/usage`、`~/.codex/auth.json` のトークン使用）からリアルタイム値を取り、失敗したら `~/.codex/sessions/` のログの最新 rate_limits（**最後に Codex を使った時点の値**）にフォールバック。トークンは Codex 実行時にしか更新されないので、しばらく使わないとログ側になる。レスポンス形式は推測で実装しており、`python3 codex_usage.py --raw` で生レスポンスを確認できる
 - `macos_menubar/ai_usage.1m.py` — Mac のメニューバーに Claude / Codex の残量を二重リング（外側 5h 枠・内側 週枠）で表示する SwiftBar プラグイン（`1m` は更新間隔）。親ディレクトリの共通ライブラリを import するので、リポジトリ内に置いたまま SwiftBar のプラグインフォルダへシンボリックリンクする。Python 3.9+（Homebrew の python3 を優先して使う）。前回値キャッシュと通知済みフラグを SwiftBar のプラグインデータフォルダ（`$SWIFTBAR_PLUGIN_DATA_PATH`、なければ `~/.cache/ai-usage-tools`）の `menubar_state.json` に保存する
   - `macos_menubar/install.sh` — Mac 側セットアップ（python3・SwiftBar のインストール、プラグインのリンク、動作確認）を一括で行う
 - `claude_widget.py` — デスクトップウィジェット。Claude Code のセッション開始フックで自動起動（`~/.claude/settings.json` にパス設定あり。**このファイルを動かしたらフックも更新**）

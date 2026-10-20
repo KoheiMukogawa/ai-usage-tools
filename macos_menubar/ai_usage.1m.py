@@ -280,7 +280,7 @@ def main():
     print("---")
     for row in _menu_rows("Codex", codex, codex_err, codex_stale):
         print(row)
-    if codex_data and codex_data.get("timestamp"):
+    if codex_data and codex_data.get("source") == "log" and codex_data.get("timestamp"):
         mins = int((datetime.now(timezone.utc) - codex_data["timestamp"]).total_seconds() // 60)
         ago = f"{mins}分前" if mins < 60 else f"{mins // 60}時間前" if mins < 1440 else f"{mins // 1440}日前"
         print(f"  (Codexの値は最後に使った時点: {ago}) | size=11 color=gray")
