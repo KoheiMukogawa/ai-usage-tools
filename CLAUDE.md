@@ -3,7 +3,9 @@
 Claude と Codex のトークン使用量を表示する自作ツール群（旧名 claude-usage-tools）。2026-07-05 に各所（`~/scripts`、旧 `~/projects/claude_clock_widget`、`homeproject/usage_display`）から集約。
 
 ## 構成
-- `claude_usage.py` — 使用量取得の共通ライブラリ（下記ツールが同ディレクトリから import する。**分離しないこと**）
+- `claude_usage.py` — 使用量取得の共通ライブラリ（下記ツールが同ディレクトリから import する。**分離しないこと**）。macOS では認証情報を Keychain（`Claude Code-credentials`）から読む
+- `codex_usage.py` — Codex 使用量の共通ライブラリ。API ではなく `~/.codex/sessions/` のログから最新の rate_limits を読むので、**値は最後に Codex を使った時点のもの**
+- `macos_menubar/ai_usage.1m.py` — Mac のメニューバーに Claude / Codex の 5h 枠残量を円グラフ表示する SwiftBar プラグイン（`1m` は更新間隔）。親ディレクトリの共通ライブラリを import するので、リポジトリ内に置いたまま SwiftBar のプラグインフォルダへシンボリックリンクする。Python 3.9+（Homebrew の python3 を優先して使う）
 - `claude_widget.py` — デスクトップウィジェット。Claude Code のセッション開始フックで自動起動（`~/.claude/settings.json` にパス設定あり。**このファイルを動かしたらフックも更新**）
 - `claude_dashboard.py` — ブラウザで見る使用量ダッシュボード（HTTPサーバー）
 - `claude_monitor.py` — CLIモニター
@@ -15,3 +17,4 @@ Claude と Codex のトークン使用量を表示する自作ツール群（旧
 ## 経緯
 - **2026-07-05**: ホームディレクトリ整理の続きとして、散らばっていた使用量系プログラムをこのプロジェクトに集約。`claude_usage.py` の重複コピー（claude_clock_widget内、内容同一）は削除。
 - **2026-10-20**: Codex の使用量も扱う方針にしたため、リポジトリ名を `claude-usage-tools` → `ai-usage-tools` に変更。
+- **2026-10-20**: Mac メニューバー用の SwiftBar プラグインと Codex 用ライブラリを追加。

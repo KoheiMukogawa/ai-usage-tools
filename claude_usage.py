@@ -4,7 +4,10 @@
 Also used as a shared module by claude_dashboard.py / claude_widget.py / claude_monitor.py.
 """
 
+from __future__ import annotations
+
 import json
+import subprocess
 import sys
 import urllib.error
 import urllib.request
@@ -13,6 +16,7 @@ from pathlib import Path
 
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 CREDENTIALS_PATH = Path.home() / ".claude" / ".credentials.json"
+KEYCHAIN_SERVICE = "Claude Code-credentials"
 BAR_WIDTH = 20
 
 # (key, label) pairs in display order; opus/sonnet rows appear only when non-null
@@ -28,8 +32,25 @@ class UsageError(Exception):
     pass
 
 
+def _load_keychain_token() -> str | None:
+    """On macOS, Claude Code keeps credentials in the Keychain instead of a file."""
+    if sys.platform != "darwin":
+        return None
+    try:
+        out = subprocess.run(
+            ["security", "find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"],
+            capture_output=True, text=True, timeout=10, check=True,
+        ).stdout
+        return json.loads(out)["claudeAiOauth"]["accessToken"] or None
+    except (subprocess.SubprocessError, OSError, json.JSONDecodeError, KeyError, TypeError):
+        return None
+
+
 def load_access_token() -> str:
     if not CREDENTIALS_PATH.exists():
+        token = _load_keychain_token()
+        if token:
+            return token
         raise UsageError(f"Credentials not found: {CREDENTIALS_PATH}\n"
                          "Log in with Claude Code first (`claude` then /login).")
     try:
