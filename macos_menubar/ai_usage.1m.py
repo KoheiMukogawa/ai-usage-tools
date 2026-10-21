@@ -10,6 +10,8 @@ name is the refresh interval). It imports usage_snapshot (and through it claude_
 codex_usage) from the repository root, so keep it inside this repository.
 """
 
+from __future__ import annotations
+
 import base64
 import os
 import subprocess

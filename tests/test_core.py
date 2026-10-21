@@ -329,6 +329,14 @@ class IconTest(unittest.TestCase):
         self.assertEqual(px[(8 * 16 + 15) * 4 + 3], 255)  # right edge of the ring is solid
 
 
+class MenuBarPluginTest(unittest.TestCase):
+    def test_plugin_loads_on_every_supported_python(self):
+        # Loading defines the functions, which evaluates annotations (list[str] broke Python 3.8)
+        import runpy
+        ns = runpy.run_path(str(ROOT / "macos_menubar" / "ai_usage.1m.py"), run_name="plugin")
+        self.assertTrue(callable(ns["main"]))
+
+
 # ---------------------------------------------------------------- Windows tray JSON
 
 class UsageJsonTest(unittest.TestCase):

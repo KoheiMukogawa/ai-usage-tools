@@ -9,6 +9,8 @@ PowerShell 5.1 misreads BOM-less UTF-8 scripts).
 Usage: python3 usage_json.py [--size PX]   (PX = tray icon size, default 16; also included in the .ico)
 """
 
+from __future__ import annotations
+
 import argparse
 import base64
 import json
