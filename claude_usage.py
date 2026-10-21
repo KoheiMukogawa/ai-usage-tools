@@ -17,6 +17,7 @@ from pathlib import Path
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 CREDENTIALS_PATH = Path.home() / ".claude" / ".credentials.json"
 KEYCHAIN_SERVICE = "Claude Code-credentials"
+CONFIG_PATH = Path.home() / ".claude.json"
 BAR_WIDTH = 20
 
 # (key, label) pairs in display order; opus/sonnet rows appear only when non-null
@@ -66,6 +67,21 @@ def load_access_token() -> str:
     return token
 
 
+def load_account() -> dict | None:
+    """Return {"email", "plan"} of the logged-in account from ~/.claude.json, or None."""
+    try:
+        with open(CONFIG_PATH) as f:
+            account = json.load(f)["oauthAccount"]
+    except (OSError, json.JSONDecodeError, KeyError, TypeError):
+        return None
+    if not isinstance(account, dict) or not account.get("emailAddress"):
+        return None
+    org_type = account.get("organizationType") or ""
+    plan = org_type[len("claude_"):] if org_type.startswith("claude_") else org_type
+    plan = plan.replace("_", " ").title() or None
+    return {"email": account["emailAddress"], "plan": plan}
+
+
 def fetch_usage(token: str | None = None) -> dict:
     if token is None:
         token = load_access_token()
@@ -111,7 +127,8 @@ def fmt_reset(iso_ts: str | None) -> str:
     now = datetime.now().astimezone()
     if dt.date() == now.date():
         return dt.strftime("%H:%M")
-    return dt.strftime("%a %-m/%-d %H:%M")
+    # %-m / %-d are glibc-only; build month/day by hand so Windows Python works too
+    return f"{dt.strftime('%a')} {dt.month}/{dt.day} {dt.strftime('%H:%M')}"
 
 
 def bar(pct: float, width: int = BAR_WIDTH) -> str:

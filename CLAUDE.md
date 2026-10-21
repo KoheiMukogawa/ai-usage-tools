@@ -2,11 +2,20 @@
 
 Claude と Codex のトークン使用量を表示する自作ツール群（旧名 claude-usage-tools）。2026-07-05 に各所（`~/scripts`、旧 `~/projects/claude_clock_widget`、`homeproject/usage_display`）から集約。
 
+配布用の説明は `README.md`（Mac / Windows（WSL なし）/ Windows（WSL）の 3 通りの導線）。**導入手順や対応環境を変えたら README も更新すること。**
+
 ## 構成
 - `claude_usage.py` — 使用量取得の共通ライブラリ（下記ツールが同ディレクトリから import する。**分離しないこと**）。macOS では認証情報を Keychain（`Claude Code-credentials`）から読む
 - `codex_usage.py` — Codex 使用量の共通ライブラリ。まず Codex CLI の `/status` と同じ非公式エンドポイント（`chatgpt.com/backend-api/wham/usage`、`~/.codex/auth.json` のトークン使用）からリアルタイム値を取り、失敗したら `~/.codex/sessions/` のログの最新 rate_limits（**最後に Codex を使った時点の値**）にフォールバック。トークンは Codex 実行時にしか更新されないので、しばらく使わないとログ側になる。レスポンス形式は推測で実装しており、`python3 codex_usage.py --raw` で生レスポンスを確認できる
-- `macos_menubar/ai_usage.1m.py` — Mac のメニューバーに Claude / Codex の残量を二重リング（外側 5h 枠・内側 週枠）で表示する SwiftBar プラグイン（`1m` は更新間隔）。親ディレクトリの共通ライブラリを import するので、リポジトリ内に置いたまま SwiftBar のプラグインフォルダへシンボリックリンクする。Python 3.9+（Homebrew の python3 を優先して使う）。前回値キャッシュと通知済みフラグを SwiftBar のプラグインデータフォルダ（`$SWIFTBAR_PLUGIN_DATA_PATH`、なければ `~/.cache/ai-usage-tools`）の `menubar_state.json` に保存する
-  - `macos_menubar/install.sh` — Mac 側セットアップ（python3・SwiftBar のインストール、プラグインのリンク、動作確認）を一括で行う
+- `usage_snapshot.py` — メニューバー／トレイ共通の中核（サービスの取得、前回値キャッシュ、通知判定、二重リングアイコンの PNG 描画）。Mac 版・Windows 版の両方が使う。**表示サービスは自動判定**（ログイン痕跡があるものだけ。何も無ければ Claude を点線で1つ）、`~/.config/ai-usage-tools/config.json`（Windows は `%APPDATA%`）の `{"services": [...]}` で固定可。サービス追加は `SERVICES` と `_detected`/`_fetch`/`_account` に足す
+- `macos_menubar/ai_usage.1m.py` — Mac のメニューバーに Claude / Codex の残量を二重リング（外側 5h 枠・内側 週枠）で表示する SwiftBar プラグイン（`1m` は更新間隔）。親ディレクトリの共通ライブラリを import するので、リポジトリ内に置いたまま SwiftBar のプラグインフォルダへシンボリックリンクする。Python 3.8+（Homebrew の python3 を優先して使う。全 Python コードは 3.8 互換・標準ライブラリのみ・Windows でも動くように保つ）。前回値キャッシュと通知済みフラグを SwiftBar のプラグインデータフォルダ（`$SWIFTBAR_PLUGIN_DATA_PATH`、なければ `~/.cache/ai-usage-tools`）の `menubar_state.json` に保存する
+  - `macos_menubar/install.sh` — Mac 側セットアップ（python3・SwiftBar のインストール、プラグインのリンク、動作確認）を一括で行う。`--uninstall` でプラグインを外す
+- `windows_tray/` — Windows のタスクトレイに Claude / Codex を別々の二重リングアイコンで表示。Claude Code / Codex を Windows で直接使う人（Native）と WSL で使う人（Wsl）の両対応
+  - `usage_json.py` — スナップショットをアイコン PNG・ツールチップ・メニュー文言込みの JSON で出力。Windows Python でも WSL の python3 でも動く。状態は `%LOCALAPPDATA%\ai-usage-tools\tray_state.json`（WSL では `~/.cache/ai-usage-tools/`）
+  - `ai_usage_tray.ps1` — Windows 側（PowerShell 5.1 + WinForms NotifyIcon）。1分ごとに usage_json.py を呼んで描くだけ（`-Mode Native` は Windows の python.exe、`-Mode Wsl` は `wsl.exe` 経由）。**ASCII のみで書くこと**（5.1 は BOM なし UTF-8 を誤読する。日本語文言は JSON 側に置く）
+  - `install.ps1` / `install.cmd` — Native 用セットアップ（install.cmd はダブルクリック用ラッパー）。Python 3.8+ を探し、ps1 を `%LOCALAPPDATA%\ai-usage-tools` にコピーしてスタートアップに非表示起動用 `AI Usage Tray.vbs` を置く。**install.ps1 は日本語を含むので UTF-8 BOM 付きで保存**。`-Uninstall` で解除
+  - `install.sh` — Wsl 用セットアップ（WSL から実行）。中身は install.ps1 と同等。`--install-codex` で WSL に Codex CLI（公式 Linux 単体バイナリ）を入れる。`--uninstall` で解除
+  - どちらのセットアップも **ps1 を変更したら再実行が必要**（Python 側の変更は即反映）。.vbs ランチャーは日本語パス対策で UTF-16 で書く
 - `claude_widget.py` — デスクトップウィジェット。Claude Code のセッション開始フックで自動起動（`~/.claude/settings.json` にパス設定あり。**このファイルを動かしたらフックも更新**）
 - `claude_dashboard.py` — ブラウザで見る使用量ダッシュボード（HTTPサーバー）
 - `claude_monitor.py` — CLIモニター
@@ -19,3 +28,5 @@ Claude と Codex のトークン使用量を表示する自作ツール群（旧
 - **2026-07-05**: ホームディレクトリ整理の続きとして、散らばっていた使用量系プログラムをこのプロジェクトに集約。`claude_usage.py` の重複コピー（claude_clock_widget内、内容同一）は削除。
 - **2026-10-20**: Codex の使用量も扱う方針にしたため、リポジトリ名を `claude-usage-tools` → `ai-usage-tools` に変更。
 - **2026-10-20**: Mac メニューバー用の SwiftBar プラグインと Codex 用ライブラリを追加。
+- **2026-10-20**: Windows タスクトレイ版を追加。共通処理を `usage_snapshot.py` に切り出し。
+- **2026-10-21**: 配布できる形に整備。Windows（WSL なし）対応、README 追加、アカウント表示を追加。

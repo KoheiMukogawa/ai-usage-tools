@@ -12,6 +12,7 @@ Run `python3 codex_usage.py --raw` to dump the live response when the shape chan
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import sys
@@ -70,6 +71,20 @@ def _load_auth() -> tuple[str, str | None]:
         return tokens["access_token"], tokens.get("account_id")
     except (OSError, json.JSONDecodeError, KeyError, TypeError):
         raise CodexUsageError(f"No ChatGPT login in {AUTH_PATH}")
+
+
+def load_account() -> dict | None:
+    """Return {"email", "plan"} from the ID token claims in auth.json (decoded locally, not verified)."""
+    try:
+        with open(AUTH_PATH) as f:
+            payload = json.load(f)["tokens"]["id_token"].split(".")[1]
+        claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+    except (OSError, ValueError, KeyError, IndexError, TypeError):
+        return None
+    if not claims.get("email"):
+        return None
+    plan = (claims.get("https://api.openai.com/auth") or {}).get("chatgpt_plan_type")
+    return {"email": claims["email"], "plan": plan.title() if plan else None}
 
 
 def fetch_live_raw() -> dict:

@@ -21,8 +21,8 @@ import time
 import json
 from machine import Pin, SPI
 
-# ===== WiFi設定(反映済み) =====
-SSID = ""
+# ===== WiFi設定（書き込み前に自分の値を入れる。リポジトリには入れない） =====
+SSID = ""                # 自宅WiFiのネットワーク名
 PASSWORD = ""            # 自分の自宅WiFiのパスワードを入れる（リポジトリには入れない）
 JST_OFFSET = 9 * 3600          # 日本標準時 = UTC+9
 # ===============================

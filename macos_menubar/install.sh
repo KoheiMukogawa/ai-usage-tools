@@ -1,6 +1,7 @@
 #!/bin/bash
 # Mac メニューバーの AI 使用量表示をセットアップする。
-#   使い方: ./macos_menubar/install.sh
+#   使い方: ./macos_menubar/install.sh              インストール
+#           ./macos_menubar/install.sh --uninstall  プラグインを外す（SwiftBar 本体は残す）
 # Homebrew の python3 と SwiftBar を入れ、プラグインを SwiftBar のプラグインフォルダへリンクする。
 set -euo pipefail
 
@@ -11,6 +12,19 @@ SWIFTBAR_DOMAIN="com.ameba.SwiftBar"
 if [ "$(uname)" != "Darwin" ]; then
     echo "このスクリプトは macOS 用です。" >&2
     exit 1
+fi
+
+if [ "${1:-}" = "--uninstall" ]; then
+    PLUGIN_DIR="$(defaults read "$SWIFTBAR_DOMAIN" PluginDirectory 2>/dev/null || true)"
+    PLUGIN_DIR="${PLUGIN_DIR/#\~/$HOME}"
+    if [ -n "$PLUGIN_DIR" ] && [ -L "$PLUGIN_DIR/ai_usage.1m.py" ]; then
+        rm "$PLUGIN_DIR/ai_usage.1m.py"
+        open "swiftbar://refreshallplugins" 2>/dev/null || true
+        echo "==> プラグインを外しました。SwiftBar ごと不要なら: brew uninstall --cask swiftbar"
+    else
+        echo "==> プラグインはインストールされていません。"
+    fi
+    exit 0
 fi
 
 if ! command -v brew >/dev/null 2>&1; then
