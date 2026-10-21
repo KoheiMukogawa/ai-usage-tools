@@ -107,7 +107,7 @@ Windows で `windows_tray/ai_usage_tray.ps1` が変わったときだけ、イ�
 ## データの扱い
 
 - 読むもの（すべてその PC のローカル）
-  - Claude: `~/.claude/.credentials.json`（Mac は Keychain の `Claude Code-credentials`）、アカウント表示に `~/.claude.json`
+  - Claude: `~/.claude/.credentials.json`（Windows は `%USERPROFILE%\.claude\.credentials.json`、Mac は Keychain の `Claude Code-credentials`）、アカウント表示に `~/.claude.json`。環境変数 `CLAUDE_CONFIG_DIR` を設定していればそのフォルダの中を読みます（メニューバー／トレイの起動環境からも見える場所に設定してください）
   - Codex: インストール済みの Codex CLI に `codex app-server` で問い合わせます（ログインやトークン更新は Codex CLI 自身が行います）。CLI が無いときや失敗したときは `~/.codex/sessions/` の使用ログを読みます。アカウント表示の予備として `~/.codex/auth.json` も読みます
 - 通信先は各サービスの本家だけです: `api.anthropic.com`（Claude の使用量。このツールが直接通信）、Codex は Codex CLI が `chatgpt.com` と通信します
 - トークンの更新（リフレッシュ）はしません。ログイン情報を書き換えることはありません

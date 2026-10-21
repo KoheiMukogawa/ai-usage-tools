@@ -68,11 +68,11 @@ def enabled_services() -> list[str]:
     """
     known = [name for name, *_ in SERVICES]
     try:
-        with open(CONFIG_FILE) as f:
+        with open(CONFIG_FILE, encoding="utf-8") as f:
             chosen = json.load(f).get("services")
         if isinstance(chosen, list) and any(name in chosen for name in known):
             return [name for name in known if name in chosen]
-    except (OSError, json.JSONDecodeError, AttributeError):
+    except (OSError, ValueError, AttributeError):
         pass
     return [name for name in known if _detected(name)] or known[:1]
 
@@ -209,10 +209,10 @@ def _png(w: int, h: int, rgba: bytearray, scale: int = 1) -> bytes:
 
 def load_state(path: Path) -> dict:
     try:
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             state = json.load(f)
         return state if isinstance(state, dict) else {}
-    except (OSError, json.JSONDecodeError):
+    except (OSError, ValueError):
         return {}
 
 
@@ -220,7 +220,7 @@ def save_state(path: Path, state: dict):
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
-        with open(tmp, "w") as f:
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(state, f)
         tmp.replace(path)
     except OSError:

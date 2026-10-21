@@ -83,7 +83,7 @@ def load_account() -> dict | None:
     Used when the app-server is unavailable; the app-server's `account/read` is preferred.
     """
     try:
-        with open(AUTH_PATH) as f:
+        with open(AUTH_PATH, encoding="utf-8") as f:
             payload = json.load(f)["tokens"]["id_token"].split(".")[1]
         claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
     except (OSError, ValueError, KeyError, IndexError, TypeError):

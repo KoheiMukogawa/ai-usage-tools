@@ -7,6 +7,7 @@ Also used as a shared module by claude_dashboard.py / claude_widget.py / claude_
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import urllib.error
@@ -15,9 +16,15 @@ from datetime import datetime
 from pathlib import Path
 
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
-CREDENTIALS_PATH = Path.home() / ".claude" / ".credentials.json"
-KEYCHAIN_SERVICE = "Claude Code-credentials"
-CONFIG_PATH = Path.home() / ".claude.json"
+# Claude Code keeps its login in ~/.claude/.credentials.json on Linux and Windows
+# (%USERPROFILE%\.claude) and in the Keychain on macOS. CLAUDE_CONFIG_DIR moves both the
+# credentials file and ~/.claude.json into that directory.
+CLAUDE_CONFIG_DIR = os.environ.get("CLAUDE_CONFIG_DIR")
+CREDENTIALS_PATH = Path(CLAUDE_CONFIG_DIR or Path.home() / ".claude") / ".credentials.json"
+# With CLAUDE_CONFIG_DIR the Keychain entry is keyed to that directory under a name we don't
+# know, so only the default entry is read (the file fallback still works)
+KEYCHAIN_SERVICE = None if CLAUDE_CONFIG_DIR else "Claude Code-credentials"
+CONFIG_PATH = Path(CLAUDE_CONFIG_DIR) / ".claude.json" if CLAUDE_CONFIG_DIR else Path.home() / ".claude.json"
 BAR_WIDTH = 20
 
 # (key, label) pairs in display order; opus/sonnet rows appear only when non-null
@@ -35,7 +42,7 @@ class UsageError(Exception):
 
 def _load_keychain_token() -> str | None:
     """On macOS, Claude Code keeps credentials in the Keychain instead of a file."""
-    if sys.platform != "darwin":
+    if sys.platform != "darwin" or not KEYCHAIN_SERVICE:
         return None
     try:
         out = subprocess.run(
@@ -52,14 +59,14 @@ def load_access_token() -> str:
         token = _load_keychain_token()
         if token:
             return token
-        where = f"Keychain ({KEYCHAIN_SERVICE})" if sys.platform == "darwin" else CREDENTIALS_PATH
+        where = f"Keychain ({KEYCHAIN_SERVICE})" if sys.platform == "darwin" and KEYCHAIN_SERVICE else CREDENTIALS_PATH
         raise UsageError(f"Credentials not found: {where}\n"
                          "Log in with Claude Code first (`claude` then /login).")
     try:
-        with open(CREDENTIALS_PATH) as f:
+        with open(CREDENTIALS_PATH, encoding="utf-8") as f:
             creds = json.load(f)
         token = creds["claudeAiOauth"]["accessToken"]
-    except (json.JSONDecodeError, KeyError, TypeError):
+    except (OSError, ValueError, KeyError, TypeError):
         raise UsageError(f"Unexpected credentials format in {CREDENTIALS_PATH}.\n"
                          "Launch Claude Code once to refresh your login.")
     if not token:
@@ -70,9 +77,9 @@ def load_access_token() -> str:
 def load_account() -> dict | None:
     """Return {"email", "plan"} of the logged-in account from ~/.claude.json, or None."""
     try:
-        with open(CONFIG_PATH) as f:
+        with open(CONFIG_PATH, encoding="utf-8") as f:
             account = json.load(f)["oauthAccount"]
-    except (OSError, json.JSONDecodeError, KeyError, TypeError):
+    except (OSError, ValueError, KeyError, TypeError):
         return None
     if not isinstance(account, dict) or not account.get("emailAddress"):
         return None
