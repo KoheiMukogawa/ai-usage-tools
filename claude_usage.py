@@ -26,6 +26,7 @@ CREDENTIALS_PATH = Path(CLAUDE_CONFIG_DIR or Path.home() / ".claude") / ".creden
 KEYCHAIN_SERVICE = None if CLAUDE_CONFIG_DIR else "Claude Code-credentials"
 CONFIG_PATH = Path(CLAUDE_CONFIG_DIR) / ".claude.json" if CLAUDE_CONFIG_DIR else Path.home() / ".claude.json"
 BAR_WIDTH = 20
+RATE_LIMIT_BACKOFF = 300  # seconds to back off after HTTP 429 without a Retry-After header
 
 # (key, label) pairs in display order; opus/sonnet rows appear only when non-null
 WINDOWS = [
@@ -37,7 +38,9 @@ WINDOWS = [
 
 
 class UsageError(Exception):
-    pass
+    def __init__(self, message: str, retry_after: float | None = None):
+        super().__init__(message)
+        self.retry_after = retry_after  # seconds to wait before asking again (HTTP 429)
 
 
 def _load_keychain_token() -> str | None:
@@ -104,6 +107,12 @@ def fetch_usage(token: str | None = None) -> dict:
     except urllib.error.HTTPError as e:
         if e.code == 401:
             raise UsageError("Token expired — launch Claude Code once to refresh it.")
+        if e.code == 429:
+            try:
+                retry_after = float(e.headers.get("Retry-After") or RATE_LIMIT_BACKOFF)
+            except ValueError:
+                retry_after = RATE_LIMIT_BACKOFF
+            raise UsageError("Rate limited (HTTP 429)", retry_after=retry_after)
         raise UsageError(f"API error: HTTP {e.code} {e.reason}")
     except urllib.error.URLError as e:
         raise UsageError(f"Network error: {e.reason}")

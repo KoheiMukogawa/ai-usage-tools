@@ -35,6 +35,9 @@ DASHES = 12                                # dashed ring = no data at all
 LOW_REMAINING = 20
 
 CACHE_MAX_AGE = timedelta(hours=3)
+# Minimum seconds between real fetches; in between the last good values are reused as-is.
+# Codex spawns `codex app-server` (~2s, plus its own network calls), so it is asked less often.
+FETCH_INTERVAL = {"Claude": 0, "Codex": 290}
 NOTIFY_THRESHOLDS = (20, 5)  # notify when remaining % drops below these
 NOTIFY_HYSTERESIS = 5        # re-arm once remaining climbs this far back above a threshold
 WINDOW_NAMES = {
@@ -227,25 +230,7 @@ def save_state(path: Path, state: dict):
         pass
 
 
-def _with_cache(state: dict, name: str, windows: list[dict], error: str | None):
-    """Store fresh windows, or fall back to recent cached ones on error.
-
-    Returns (windows, stale_since) where stale_since is the cache time when cached data is used.
-    """
-    cache = state.setdefault("cache", {})
-    now = datetime.now(timezone.utc)
-    if not error:
-        cache[name] = {"windows": windows, "fetched_at": now.isoformat()}
-        return windows, None
-    entry = cache.get(name)
-    if not entry:
-        return [], None
-    try:
-        fetched = datetime.fromisoformat(entry["fetched_at"])
-    except (KeyError, TypeError, ValueError):
-        return [], None
-    if now - fetched > CACHE_MAX_AGE:
-        return [], None
+def _cached_windows(entry: dict, now: datetime) -> list[dict]:
     out = []
     for w in entry.get("windows", []):
         w = dict(w)
@@ -255,7 +240,32 @@ def _with_cache(state: dict, name: str, windows: list[dict], error: str | None):
         except (TypeError, ValueError):
             pass
         out.append(w)
-    return out, fetched
+    return out
+
+
+def _cache_age(entry: dict | None, now: datetime) -> timedelta | None:
+    try:
+        return now - datetime.fromisoformat(entry["fetched_at"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _with_cache(state: dict, name: str, windows: list[dict], error: str | None,
+                note: str | None = None, account: dict | None = None):
+    """Store fresh windows, or fall back to recent cached ones on error.
+
+    Returns (windows, stale_since) where stale_since is the cache time when cached data is used.
+    """
+    cache = state.setdefault("cache", {})
+    now = datetime.now(timezone.utc)
+    if not error:
+        cache[name] = {"windows": windows, "fetched_at": now.isoformat(), "note": note, "account": account}
+        return windows, None
+    entry = cache.get(name)
+    age = _cache_age(entry, now)
+    if age is None or age > CACHE_MAX_AGE:
+        return [], None
+    return _cached_windows(entry, now), now - age
 
 
 def _check_notifications(state: dict, name: str, windows: list[dict]) -> list[tuple[str, str]]:
@@ -301,17 +311,50 @@ def _ago(ts: datetime) -> str:
 
 
 def _fetch(name: str):
-    """Return (windows, error, note, account) for one service; account may be None."""
+    """Return (windows, error, note, account, retry_after) for one service.
+
+    account may be None; retry_after is set when the service asked us to back off.
+    """
     try:
         if name == "Claude":
-            return claude_usage.get_windows(claude_usage.fetch_usage()), None, None, None
+            return claude_usage.get_windows(claude_usage.fetch_usage()), None, None, None, None
         data = codex_usage.fetch_usage()
         note = None
         if data.get("source") == "log" and data.get("timestamp"):
             note = f"Codexの値は最後に使った時点: {_ago(data['timestamp'])}"
-        return codex_usage.get_windows(data), None, note, data.get("account")
+        return codex_usage.get_windows(data), None, note, data.get("account"), None
     except (claude_usage.UsageError, codex_usage.CodexUsageError) as e:
-        return [], f"{name}: {str(e).splitlines()[0]}", None, None
+        return [], f"{name}: {str(e).splitlines()[0]}", None, None, getattr(e, "retry_after", None)
+
+
+def _service_data(state: dict, name: str):
+    """(windows, error, stale_since, note, account) for one service, honouring the polling
+    interval and any rate-limit backoff before actually fetching."""
+    now = datetime.now(timezone.utc)
+    entry = state.get("cache", {}).get(name)
+    backoff = state.setdefault("backoff", {}).get(name)
+    try:
+        backing_off = backoff and now < datetime.fromisoformat(backoff["until"])
+    except (KeyError, TypeError, ValueError):
+        backing_off = False
+
+    if backing_off:
+        until = datetime.fromisoformat(backoff["until"]).astimezone().strftime("%H:%M")
+        error = f"{backoff['error']} — {until} に再開"
+        windows, stale_since = _with_cache(state, name, [], error)
+        return windows, error, stale_since, None, (entry or {}).get("account")
+
+    age = _cache_age(entry, now)
+    if age is not None and age.total_seconds() < FETCH_INTERVAL.get(name, 0):
+        return _cached_windows(entry, now), None, None, entry.get("note"), entry.get("account")
+
+    windows, error, note, account, retry_after = _fetch(name)
+    if retry_after:
+        state["backoff"][name] = {"until": (now + timedelta(seconds=retry_after)).isoformat(), "error": error}
+    else:
+        state["backoff"].pop(name, None)
+    windows, stale_since = _with_cache(state, name, windows, error, note, account)
+    return windows, error, stale_since, note, account
 
 
 def _account(name: str, fetched: dict | None) -> str | None:
@@ -338,8 +381,7 @@ def collect(state_path: Path) -> dict:
     for name, rgb, outer_key, inner_key in SERVICES:
         if name not in enabled:
             continue
-        windows, error, note, account = _fetch(name)
-        windows, stale_since = _with_cache(state, name, windows, error)
+        windows, error, stale_since, note, account = _service_data(state, name)
         if not stale_since:  # never alert from cached values
             alerts += _check_notifications(state, name, windows)
         services.append({

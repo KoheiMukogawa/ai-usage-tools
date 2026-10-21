@@ -242,6 +242,66 @@ class EnabledServicesTest(TempDirTest):
                 self.assertEqual(us.enabled_services(), ["Claude", "Codex"], broken)
 
 
+class PollingTest(unittest.TestCase):
+    def fake_fetch(self, results):
+        calls = []
+
+        def fetch(name):
+            calls.append(name)
+            return results.pop(0)
+        return calls, fetch
+
+    def test_codex_reuses_recent_values_between_fetches(self):
+        state = {}
+        ok = ([window("primary", 30)], None, "note", {"email": "a@example.com", "plan": None}, None)
+        calls, fetch = self.fake_fetch([ok, ok])
+        with mock.patch.object(us, "_fetch", side_effect=fetch):
+            us._service_data(state, "Codex")
+            windows, error, stale, note, account = us._service_data(state, "Codex")
+            self.assertEqual(len(calls), 1)  # second call served from cache
+            self.assertEqual((windows[0]["pct"], error, stale, note, account["email"]),
+                             (30, None, None, "note", "a@example.com"))
+            old = datetime.now(timezone.utc) - timedelta(seconds=us.FETCH_INTERVAL["Codex"] + 1)
+            state["cache"]["Codex"]["fetched_at"] = old.isoformat()
+            us._service_data(state, "Codex")
+            self.assertEqual(len(calls), 2)
+
+    def test_claude_fetches_every_time(self):
+        state = {}
+        ok = ([window()], None, None, None, None)
+        calls, fetch = self.fake_fetch([ok, ok])
+        with mock.patch.object(us, "_fetch", side_effect=fetch):
+            us._service_data(state, "Claude")
+            us._service_data(state, "Claude")
+        self.assertEqual(len(calls), 2)
+
+    def test_rate_limit_backs_off_with_cached_values(self):
+        state = {}
+        ok = ([window(pct=40)], None, None, None, None)
+        limited = ([], "Claude: Rate limited (HTTP 429)", None, None, 120.0)
+        calls, fetch = self.fake_fetch([ok, limited, ok])
+        with mock.patch.object(us, "_fetch", side_effect=fetch):
+            us._service_data(state, "Claude")
+            us._service_data(state, "Claude")                      # gets 429
+            windows, error, stale, _, _ = us._service_data(state, "Claude")  # backing off
+            self.assertEqual(len(calls), 2)
+            self.assertEqual(windows[0]["pct"], 40)
+            self.assertIsNotNone(stale)
+            self.assertIn("再開", error)
+            state["backoff"]["Claude"]["until"] = "2000-01-01T00:00:00+00:00"  # backoff over
+            windows, error, stale, _, _ = us._service_data(state, "Claude")
+            self.assertEqual((len(calls), error, stale), (3, None, None))
+            self.assertNotIn("Claude", state["backoff"])
+
+    def test_claude_429_reads_retry_after(self):
+        import urllib.error
+        err = urllib.error.HTTPError("https://x", 429, "Too Many Requests", {"Retry-After": "42"}, None)
+        with mock.patch.object(claude_usage.urllib.request, "urlopen", side_effect=err):
+            with self.assertRaises(claude_usage.UsageError) as cm:
+                claude_usage.fetch_usage(token="t")
+        self.assertEqual(cm.exception.retry_after, 42.0)
+
+
 # ---------------------------------------------------------------- icons
 
 class IconTest(unittest.TestCase):
