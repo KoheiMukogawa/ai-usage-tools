@@ -120,7 +120,9 @@ function Start-Fetch {
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     if ($Mode -eq "Wsl") {
         $psi.FileName = "wsl.exe"
-        $psi.Arguments = "-d `"$Distro`" -e python3 `"$Script`" --size $iconSize"
+        # wsl.exe keeps quotes in the -d value literally (-> WSL_E_DISTRO_NOT_FOUND), so leave
+        # the distro name bare; arguments after -e are unquoted normally
+        $psi.Arguments = "-d $Distro -e python3 `"$Script`" --size $iconSize"
     } else {
         $psi.FileName = $Python
         $psi.Arguments = "`"$Script`" --size $iconSize"
@@ -151,7 +153,13 @@ function Complete-Fetch {
     $code = $script:proc.ExitCode
     $script:proc.Dispose()
     $script:proc = $null
-    if ($code -ne 0 -or -not $output) { Show-Error "usage_json.py exited with code $code"; return }
+    if ($code -ne 0 -or -not $output) {
+        # wsl.exe reports its own errors in UTF-16; dropping NULs keeps the ASCII part readable
+        $detail = ($output -replace "`0", "").Trim()
+        if ($detail.Length -gt 120) { $detail = $detail.Substring(0, 120) }
+        Show-Error ("usage_json.py exited with code $code" + $(if ($detail) { ": $detail" } else { "" }))
+        return
+    }
     try { $snap = $output | ConvertFrom-Json } catch { Show-Error "Bad JSON from usage_json.py"; return }
 
     $script:lastSnap = $snap
