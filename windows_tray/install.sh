@@ -2,7 +2,7 @@
 # Windows のタスクトレイに AI 使用量を表示する。WSL 側から実行する。
 #   ./windows_tray/install.sh              インストールして起動（ログオン時に自動起動）
 #   ./windows_tray/install.sh --uninstall  停止して自動起動を解除
-#   ./windows_tray/install.sh --install-codex  WSL に Codex CLI（公式の Linux 版単体バイナリ）を入れる
+#   ./windows_tray/install.sh --install-codex  WSL に Codex CLI を公式インストーラーで入れる
 # ai_usage_tray.ps1 を %LOCALAPPDATA%\ai-usage-tools にコピーし、スタートアップに
 # 非表示で起動するランチャー (.vbs) を置く。ps1 を変更したら再実行すること。
 set -euo pipefail
@@ -16,20 +16,15 @@ if [ ! -x "$PS" ] || [ -z "${WSL_DISTRO_NAME:-}" ]; then
 fi
 
 if [ "${1:-}" = "--install-codex" ]; then
-    # Node.js 不要の公式単体バイナリ。~/.local/bin は Ubuntu では PATH の先頭に入る
-    url="https://github.com/openai/codex/releases/latest/download/codex-x86_64-unknown-linux-musl.tar.gz"
+    # OpenAI 公式の単体インストーラー（Node.js 不要）。実行ファイルだけでなく付属ファイル一式を
+    # ~/.codex/packages/standalone に入れ、~/.local/bin/codex にリンクする（単体バイナリだけだと
+    # 対話画面が "no complete local package" で起動しない）
+    url="https://github.com/openai/codex/releases/latest/download/install.sh"
     tmp="$(mktemp -d)"
     trap 'rm -rf "$tmp"' EXIT
-    echo "==> Codex をダウンロード: $url"
-    curl -fL --progress-bar "$url" -o "$tmp/codex.tar.gz"
-    tar -xzf "$tmp/codex.tar.gz" -C "$tmp"
-    mkdir -p "$HOME/.local/bin"
-    install -m 755 "$tmp/codex-x86_64-unknown-linux-musl" "$HOME/.local/bin/codex"
-    echo "==> インストール: $HOME/.local/bin/codex ($("$HOME/.local/bin/codex" --version))"
-    case ":$PATH:" in
-        *":$HOME/.local/bin:"*) ;;
-        *) echo "    ~/.local/bin が PATH にありません。WSL を開き直すと有効になります。" ;;
-    esac
+    echo "==> Codex 公式インストーラーを取得: $url"
+    curl -fsSL "$url" -o "$tmp/install.sh"
+    CODEX_NON_INTERACTIVE=1 sh "$tmp/install.sh"
     echo "    続けて \`codex login --device-auth\` でログインしてください。"
     exit 0
 fi

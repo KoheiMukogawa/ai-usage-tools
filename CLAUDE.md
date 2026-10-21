@@ -14,7 +14,7 @@ Claude と Codex のトークン使用量を表示する自作ツール群（旧
   - `usage_json.py` — スナップショットをアイコン PNG・ツールチップ・メニュー文言込みの JSON で出力。Windows Python でも WSL の python3 でも動く。状態は `%LOCALAPPDATA%\ai-usage-tools\tray_state.json`（WSL では `~/.cache/ai-usage-tools/`）
   - `ai_usage_tray.ps1` — Windows 側（PowerShell 5.1 + WinForms NotifyIcon）。1分ごとに usage_json.py を呼んで描くだけ（`-Mode Native` は Windows の python.exe、`-Mode Wsl` は `wsl.exe` 経由）。**ASCII のみで書くこと**（5.1 は BOM なし UTF-8 を誤読する。日本語文言は JSON 側に置く）
   - `install.ps1` / `install.cmd` — Native 用セットアップ（install.cmd はダブルクリック用ラッパー）。Python 3.8+ を探し、ps1 を `%LOCALAPPDATA%\ai-usage-tools` にコピーしてスタートアップに非表示起動用 `AI Usage Tray.vbs` を置く。**install.ps1 は日本語を含むので UTF-8 BOM 付きで保存**。`-Uninstall` で解除
-  - `install.sh` — Wsl 用セットアップ（WSL から実行）。中身は install.ps1 と同等。`--install-codex` で WSL に Codex CLI（公式 Linux 単体バイナリ）を入れる。`--uninstall` で解除
+  - `install.sh` — Wsl 用セットアップ（WSL から実行）。中身は install.ps1 と同等。`--install-codex` で WSL に Codex CLI を公式インストーラー（releases の install.sh）で入れる。**単体バイナリ（codex-x86_64-unknown-linux-musl）だけ入れると app-server は動くが対話画面が "no complete local package" で起動しないので使わないこと**。`--uninstall` で解除
   - どちらのセットアップも **ps1 を変更したら再実行が必要**（Python 側の変更は即反映）。.vbs ランチャーは日本語パス対策で UTF-16 で書く
 - `claude_widget.py` — デスクトップウィジェット。Claude Code のセッション開始フックで自動起動（`~/.claude/settings.json` にパス設定あり。**このファイルを動かしたらフックも更新**）
 - `claude_dashboard.py` — ブラウザで見る使用量ダッシュボード（HTTPサーバー）

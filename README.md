@@ -60,7 +60,7 @@ git clone https://github.com/KoheiMukogawa/ai-usage-tools.git ~/ai-usage-tools
 ~/ai-usage-tools/windows_tray/install.sh
 ```
 
-WSL に Codex CLI が入っていなければ、Node.js 不要の公式 Linux 版を入れられます:
+WSL に Codex CLI が入っていなければ、OpenAI 公式のインストーラー（Node.js 不要）で入れられます:
 
 ```sh
 ~/ai-usage-tools/windows_tray/install.sh --install-codex
