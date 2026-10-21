@@ -2,11 +2,11 @@
 """WSL-side helper for the Windows tray app — prints one JSON snapshot to stdout.
 
 ai_usage_tray.ps1 runs this every minute through `wsl.exe` and only draws what it
-gets: one double-ring icon per service (PNG, base64), tooltip, menu lines and alerts.
+gets: one double-ring icon per service (.ico with several sizes, base64), tooltip, menu lines and alerts.
 All UI text lives here so the PowerShell script can stay ASCII-only (Windows
 PowerShell 5.1 misreads BOM-less UTF-8 scripts).
 
-Usage: python3 usage_json.py [--size PX]   (PX = tray icon size, default 16)
+Usage: python3 usage_json.py [--size PX]   (PX = tray icon size, default 16; also included in the .ico)
 """
 
 import argparse
@@ -66,9 +66,9 @@ def main():
     out = {
         "services": [{
             "name": s["name"],
-            "icon": base64.b64encode(us.render_icon(
-                [(s["outer"], s["inner"], s["rgb"], bool(s["stale_since"]))],
-                gauge_pt=size, gap_pt=0, height_pt=size, scale=1)).decode(),
+            "icon": base64.b64encode(us.render_ico(
+                s["outer"], s["inner"], s["rgb"], bool(s["stale_since"]),
+                sorted({16, 20, 24, 32, size}))).decode(),
             "account": s["account"],
             "tooltip": _tooltip(s),
             "lines": _lines(s),

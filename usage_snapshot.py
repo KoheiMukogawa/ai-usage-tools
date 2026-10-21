@@ -129,24 +129,67 @@ def render_icon(gauges: list[tuple[float | None, float | None, tuple[int, int, i
     inner_in = inner_out - INNER_WIDTH_PT * k * scale
     pixels = bytearray(w * h * 4)
 
-    def band(r_out, r_in, pct, rgb, stale):
-        if pct is None:
-            return r_out, r_in, 0.0, rgb, 1.0, TRACK_RGBA, True
-        frac = max(0.0, min(1.0, pct / 100))
-        return (r_out, r_in, frac,
-                LOW_RGB if pct < LOW_REMAINING else rgb,
-                STALE_ALPHA if stale else 1.0,
-                DEPLETED_TRACK_RGBA if pct <= 0 else TRACK_RGBA,
-                False)
-
     for i, (outer_pct, inner_pct, rgb, stale) in enumerate(gauges):
         cx = (i * (gauge_pt + gap_pt) + gauge_pt / 2) * scale
         _draw_gauge(pixels, w, h, cx, h / 2, [
-            band(outer_out, outer_in, outer_pct, rgb, stale),
-            band(inner_out, inner_in, inner_pct, rgb, stale),
+            _band(outer_out, outer_in, outer_pct, rgb, stale),
+            _band(inner_out, inner_in, inner_pct, rgb, stale),
         ])
 
     return _png(w, h, pixels, scale)
+
+
+def _band(r_out, r_in, pct, rgb, stale):
+    if pct is None:
+        return r_out, r_in, 0.0, rgb, 1.0, TRACK_RGBA, True
+    frac = max(0.0, min(1.0, pct / 100))
+    return (r_out, r_in, frac,
+            LOW_RGB if pct < LOW_REMAINING else rgb,
+            STALE_ALPHA if stale else 1.0,
+            DEPLETED_TRACK_RGBA if pct <= 0 else TRACK_RGBA,
+            False)
+
+
+def render_tray_pixels(outer_pct, inner_pct, rgb, stale, size: int) -> bytearray:
+    """One double-ring gauge as size x size RGBA, pixel-snapped for tiny tray icons.
+
+    Radii and ring widths are whole pixels and the centre sits on a pixel corner, so ring
+    edges land on pixel boundaries instead of blurring across them (16px: 3 / 1 / 2 / hole 2).
+    """
+    outer_w = max(2, round(size * 0.19))
+    gap_w = max(1, round(size * 0.06))
+    inner_w = max(2, round(size * 0.14))
+    outer_out = size / 2
+    outer_in = outer_out - outer_w
+    inner_out = outer_in - gap_w
+    inner_in = inner_out - inner_w
+    pixels = bytearray(size * size * 4)
+    _draw_gauge(pixels, size, size, size / 2, size / 2, [
+        _band(outer_out, outer_in, outer_pct, rgb, stale),
+        _band(inner_out, inner_in, inner_pct, rgb, stale),
+    ])
+    return pixels
+
+
+def render_ico(outer_pct, inner_pct, rgb, stale, sizes: list[int]) -> bytes:
+    """A Windows .ico holding one pixel-snapped gauge per size (32bpp DIB entries with alpha)."""
+    entries = []
+    for size in sizes:
+        rgba = render_tray_pixels(outer_pct, inner_pct, rgb, stale, size)
+        bgra = bytearray()
+        for y in range(size - 1, -1, -1):  # DIBs are stored bottom-up
+            row = rgba[y * size * 4:(y + 1) * size * 4]
+            for x in range(0, len(row), 4):
+                bgra += bytes((row[x + 2], row[x + 1], row[x], row[x + 3]))
+        mask = bytes(((size + 31) // 32) * 4 * size)  # AND mask unused with 32bpp alpha
+        header = struct.pack("<IiiHHIIiiII", 40, size, size * 2, 1, 32, 0, len(bgra) + len(mask), 0, 0, 0, 0)
+        entries.append((size, header + bytes(bgra) + mask))
+    out = struct.pack("<HHH", 0, 1, len(entries))
+    offset = 6 + 16 * len(entries)
+    for size, data in entries:
+        out += struct.pack("<BBBBHHII", size % 256, size % 256, 0, 0, 1, 32, len(data), offset)
+        offset += len(data)
+    return out + b"".join(data for _, data in entries)
 
 
 def _png(w: int, h: int, rgba: bytearray, scale: int = 1) -> bytes:

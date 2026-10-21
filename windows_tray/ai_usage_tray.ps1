@@ -19,10 +19,12 @@ Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
-public static class AiUsageIconUtil {
-    [DllImport("user32.dll")] public static extern bool DestroyIcon(IntPtr handle);
+public static class AiUsageNative {
+    [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
 }
 "@
+# Without this, a 125%/150% display reports a 16px tray icon and Windows upscales it (blurry)
+[void][AiUsageNative]::SetProcessDPIAware()
 
 # One instance only
 $mutex = New-Object System.Threading.Mutex($false, "Local\AiUsageTray")
@@ -49,7 +51,7 @@ function New-TrayEntry([string]$name, [string]$text) {
         if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Left) { $showMenu.Invoke($s, $null) }
     })
     $ni.Visible = $true
-    $entry = @{ Icon = $ni; Handle = [IntPtr]::Zero }
+    $entry = @{ Icon = $ni; Owned = $null }
     $tray[$name] = $entry
     Set-TrayText $entry $text
     return $entry
@@ -59,19 +61,20 @@ function Remove-TrayEntry([string]$name) {
     $entry = $tray[$name]
     $entry.Icon.Visible = $false
     $entry.Icon.Dispose()
-    if ($entry.Handle -ne [IntPtr]::Zero) { [void][AiUsageIconUtil]::DestroyIcon($entry.Handle) }
+    if ($entry.Owned) { $entry.Owned.Dispose() }
     $tray.Remove($name)
 }
 
 function Set-TrayIcon($entry, [string]$b64) {
+    # $b64 is an .ico with several sizes; pick the one matching the tray at this DPI
     $bytes = [Convert]::FromBase64String($b64)
     $ms = New-Object System.IO.MemoryStream(, $bytes)
-    $bmp = New-Object System.Drawing.Bitmap($ms)
-    $handle = $bmp.GetHicon()
-    $entry.Icon.Icon = [System.Drawing.Icon]::FromHandle($handle)
-    $bmp.Dispose(); $ms.Dispose()
-    if ($entry.Handle -ne [IntPtr]::Zero) { [void][AiUsageIconUtil]::DestroyIcon($entry.Handle) }
-    $entry.Handle = $handle
+    $icon = New-Object System.Drawing.Icon($ms, $iconSize, $iconSize)
+    $ms.Dispose()
+    $old = $entry.Owned
+    $entry.Icon.Icon = $icon
+    $entry.Owned = $icon
+    if ($old) { $old.Dispose() }
 }
 
 function Set-TrayText($entry, [string]$text) {
@@ -208,7 +211,7 @@ try {
     foreach ($entry in $tray.Values) {
         $entry.Icon.Visible = $false
         $entry.Icon.Dispose()
-        if ($entry.Handle -ne [IntPtr]::Zero) { [void][AiUsageIconUtil]::DestroyIcon($entry.Handle) }
+        if ($entry.Owned) { $entry.Owned.Dispose() }
     }
     $mutex.ReleaseMutex()
 }
