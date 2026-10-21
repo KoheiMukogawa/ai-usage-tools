@@ -17,7 +17,7 @@ Claude（Claude Code）と Codex の **使用量の残り** を、Mac のメニ�
 - 1 分ごとに自動更新
 
 > [!WARNING]
-> Claude・Codex とも **公式には公開されていないエンドポイント／ローカルファイル** から使用量を読んでいます。
+> Claude は **公式には公開されていないエンドポイント** から、Codex は Codex CLI の **実験的な（experimental）app-server 機能** から使用量を読んでいます。
 > 各サービスのアップデートで予告なく動かなくなる可能性がある、個人用のツールとして使ってください。
 
 ## 対応環境
@@ -28,7 +28,7 @@ Claude（Claude Code）と Codex の **使用量の残り** を、Mac のメニ�
 | Windows（Claude Code / Codex を Windows で直接使う） | タスクトレイ | Python 3.8 以上、Windows PowerShell 5.1（標準搭載） |
 | Windows（Claude Code / Codex を WSL で使う） | タスクトレイ | WSL の python3（Ubuntu なら標準搭載） |
 
-どの環境でも、表示したいサービス（Claude Code / Codex CLI）に **その PC でログイン済み** であることが前提です。どちらか片方だけでも使えます（何も見つからないときは、ログインを促す点線リングを 1 つ表示します）。
+どの環境でも、表示したいサービス（Claude Code / Codex CLI）が **その PC に入っていてログイン済み** であることが前提です。どちらか片方だけでも使えます（何も見つからないときは、ログインを促す点線リングを 1 つ表示します）。
 
 ## インストール
 
@@ -108,8 +108,8 @@ Windows で `windows_tray/ai_usage_tray.ps1` が変わったときだけ、イ�
 
 - 読むもの（すべてその PC のローカル）
   - Claude: `~/.claude/.credentials.json`（Mac は Keychain の `Claude Code-credentials`）、アカウント表示に `~/.claude.json`
-  - Codex: `~/.codex/auth.json`、`~/.codex/sessions/` の使用ログ
-- 通信先は各サービスの本家だけです: `api.anthropic.com`（Claude の使用量）、`chatgpt.com`（Codex の使用量。Codex CLI の `/status` と同じもの）
+  - Codex: インストール済みの Codex CLI に `codex app-server` で問い合わせます（ログインやトークン更新は Codex CLI 自身が行います）。CLI が無いときや失敗したときは `~/.codex/sessions/` の使用ログを読みます。アカウント表示の予備として `~/.codex/auth.json` も読みます
+- 通信先は各サービスの本家だけです: `api.anthropic.com`（Claude の使用量。このツールが直接通信）、Codex は Codex CLI が `chatgpt.com` と通信します
 - トークンの更新（リフレッシュ）はしません。ログイン情報を書き換えることはありません
 - 保存するのは直近の使用量と通知済みフラグだけです（Mac: SwiftBar のプラグインデータフォルダ、Windows: `%LOCALAPPDATA%\ai-usage-tools`、WSL: `~/.cache/ai-usage-tools`）
 
@@ -118,8 +118,8 @@ Windows で `windows_tray/ai_usage_tray.ps1` が変わったときだけ、イ�
 | 症状 | 原因と対処 |
 |---|---|
 | Claude が点線リング / `Token expired` | Claude Code のトークンは Claude Code 起動時にしか更新されません。Claude Code を一度起動してください |
-| Codex のメニューに「最後に使った時点」と出る | リアルタイム取得に失敗し、使用ログの値を出しています。Codex を一度使うとトークンが更新されます |
-| Codex の値がおかしい | `python3 codex_usage.py --raw` で生のレスポンスを確認できます（メールアドレス等が含まれるので共有時は伏せてください） |
+| Codex のメニューに「最後に使った時点」と出る | Codex CLI から取得できず、使用ログの値を出しています。`codex` コマンドが使えるか、`codex login status` でログイン中かを確認してください（`Login expired` なら `codex login` し直し） |
+| Codex の値がおかしい | `python3 codex_usage.py --raw` で Codex CLI の生のレスポンスを確認できます（メールアドレス等が含まれるので共有時は伏せてください） |
 | Windows で `取得エラー` | トレイのメニューにエラー内容が出ます。Windows（WSL なし）なら `python windows_tray\usage_json.py`、WSL なら `python3 windows_tray/usage_json.py` を直接実行するとエラーが見られます |
 
 ## 仕組み

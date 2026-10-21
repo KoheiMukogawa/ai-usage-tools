@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Codex usage — 5h (primary) / weekly (secondary) rate-limit utilization.
 
-Tries the live ChatGPT backend endpoint that Codex CLI's /status uses, with the
-token from ~/.codex/auth.json. When that fails (no login, expired token — it is
-refreshed only when Codex runs — or an unknown response shape), falls back to
-the latest `rate_limits` snapshot Codex CLI writes into
-~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl, which is as of the last Codex use.
+Asks the locally installed Codex CLI through `codex app-server` (JSON-RPC over stdio):
+`account/rateLimits/read` for the limits and `account/read` for the account. Codex itself
+handles login and token refresh there, so this keeps working as long as Codex is logged in.
+When the CLI is missing or the request fails, falls back to the latest `rate_limits`
+snapshot Codex CLI writes into ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl, which is
+as of the last Codex use.
 
-Run `python3 codex_usage.py --raw` to dump the live response when the shape changes.
+Run `python3 codex_usage.py --raw` to dump the app-server responses.
 """
 
 from __future__ import annotations
@@ -15,17 +16,25 @@ from __future__ import annotations
 import base64
 import json
 import os
+import queue
+import shutil
+import subprocess
 import sys
-import urllib.error
-import urllib.request
+import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 CODEX_HOME = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
 SESSIONS_DIR = CODEX_HOME / "sessions"
 AUTH_PATH = CODEX_HOME / "auth.json"
-USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
 TAIL_BYTES = 512 * 1024
+APP_SERVER_TIMEOUT = 30  # seconds for the whole app-server session
+# Menu bar / tray launchers run with a minimal PATH, so also look where Codex is usually installed
+EXTRA_BIN_DIRS = [Path.home() / ".local" / "bin", Path("/opt/homebrew/bin"), Path("/usr/local/bin"),
+                  Path.home() / ".npm-global" / "bin",
+                  Path(os.environ.get("APPDATA") or Path.home()) / "npm",
+                  *sorted(Path.home().glob(".nvm/versions/node/*/bin"), reverse=True)]
 
 # (key, label) pairs in display order
 WINDOWS = [
@@ -64,17 +73,15 @@ def _parse_ts(value) -> datetime | None:
     return None
 
 
-def _load_auth() -> tuple[str, str | None]:
-    try:
-        with open(AUTH_PATH) as f:
-            tokens = json.load(f)["tokens"]
-        return tokens["access_token"], tokens.get("account_id")
-    except (OSError, json.JSONDecodeError, KeyError, TypeError):
-        raise CodexUsageError(f"No ChatGPT login in {AUTH_PATH}")
+def _plan_label(plan) -> str | None:
+    return plan.replace("_", " ").title() if plan and plan != "unknown" else None
 
 
 def load_account() -> dict | None:
-    """Return {"email", "plan"} from the ID token claims in auth.json (decoded locally, not verified)."""
+    """Return {"email", "plan"} from the ID token claims in auth.json (decoded locally, not verified).
+
+    Used when the app-server is unavailable; the app-server's `account/read` is preferred.
+    """
     try:
         with open(AUTH_PATH) as f:
             payload = json.load(f)["tokens"]["id_token"].split(".")[1]
@@ -84,61 +91,132 @@ def load_account() -> dict | None:
     if not claims.get("email"):
         return None
     plan = (claims.get("https://api.openai.com/auth") or {}).get("chatgpt_plan_type")
-    return {"email": claims["email"], "plan": plan.title() if plan else None}
+    return {"email": claims["email"], "plan": _plan_label(plan)}
 
 
-def fetch_live_raw() -> dict:
-    token, account_id = _load_auth()
-    headers = {"Authorization": f"Bearer {token}", "User-Agent": "codex-cli"}
-    if account_id:
-        headers["ChatGPT-Account-Id"] = account_id
-    req = urllib.request.Request(USAGE_URL, headers=headers)
+# ---------------------------------------------------------------- codex app-server
+
+def _search_path() -> str:
+    return os.pathsep.join([os.environ.get("PATH", "")] + [str(d) for d in EXTRA_BIN_DIRS])
+
+
+def find_codex() -> str | None:
+    return shutil.which("codex", path=_search_path())
+
+
+def app_server_call(requests: list[tuple[str, dict | None]]) -> list[dict]:
+    """Run `codex app-server`, perform the initialize handshake, send each (method, params)
+    request and return the raw JSON-RPC responses in the same order."""
+    exe = find_codex()
+    if not exe:
+        raise CodexUsageError("Codex CLI not found")
+    # An npm-installed codex is a `#!/usr/bin/env node` script; node normally sits next to it
+    env = dict(os.environ, PATH=os.pathsep.join([str(Path(exe).parent), _search_path()]))
+    kwargs = {"env": env}
+    if os.name == "nt":
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW  # no console flash from the tray
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            return json.load(resp)
-    except urllib.error.HTTPError as e:
-        if e.code == 401:
-            raise CodexUsageError("Token expired — run Codex once to refresh it.")
-        raise CodexUsageError(f"API error: HTTP {e.code} {e.reason}")
-    except urllib.error.URLError as e:
-        raise CodexUsageError(f"Network error: {e.reason}")
-    except json.JSONDecodeError:
-        raise CodexUsageError("Live usage response was not JSON")
+        proc = subprocess.Popen([exe, "app-server"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.DEVNULL, text=True, encoding="utf-8", **kwargs)
+    except OSError as e:
+        raise CodexUsageError(f"Could not start Codex CLI: {e}")
+
+    lines: queue.Queue = queue.Queue()
+
+    def reader():  # readline() can't time out portably (no select() on Windows pipes)
+        for line in proc.stdout:
+            lines.put(line)
+        lines.put(None)
+
+    threading.Thread(target=reader, daemon=True).start()
+    deadline = time.monotonic() + APP_SERVER_TIMEOUT
+
+    def send(msg: dict):
+        proc.stdin.write(json.dumps(msg) + "\n")
+        proc.stdin.flush()
+
+    def wait_for(msg_id: int) -> dict:
+        while True:
+            try:
+                line = lines.get(timeout=max(0.0, deadline - time.monotonic()))
+            except queue.Empty:
+                raise CodexUsageError("Codex app-server timed out")
+            if line is None:
+                raise CodexUsageError("Codex app-server exited unexpectedly")
+            try:
+                msg = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if msg.get("id") == msg_id and ("result" in msg or "error" in msg):
+                return msg  # anything else is a notification and is ignored
+
+    try:
+        send({"method": "initialize", "id": 0,
+              "params": {"clientInfo": {"name": "ai-usage-tools", "version": "1.0"}}})
+        init = wait_for(0)
+        if "error" in init:
+            raise CodexUsageError(f"Codex app-server initialize failed: {init['error'].get('message')}")
+        send({"method": "initialized"})
+        responses = []
+        for i, (method, params) in enumerate(requests, start=1):
+            msg = {"method": method, "id": i}
+            if params is not None:
+                msg["params"] = params
+            send(msg)
+            responses.append(wait_for(i))
+        return responses
+    except (OSError, ValueError) as e:  # broken pipe etc.
+        raise CodexUsageError(f"Codex app-server error: {e}")
+    finally:
+        try:
+            proc.stdin.close()
+        except OSError:
+            pass
+        try:
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            proc.kill()
 
 
-def _live_window(w, now: datetime) -> dict | None:
-    if not isinstance(w, dict) or w.get("used_percent") is None:
-        return None
-    resets = w.get("reset_at", w.get("resets_at"))
-    if resets is None:
-        after = w.get("reset_after_seconds", w.get("resets_in_seconds"))
-        if after is not None:
-            resets = now.timestamp() + after
-    return {"used_percent": w["used_percent"], "resets_at": resets}
+def _error_text(resp: dict) -> str:
+    message = str((resp.get("error") or {}).get("message", "unknown error"))
+    if "401" in message or "token" in message.lower():
+        return "Login expired — run `codex login` again."
+    return message.splitlines()[0][:120]
 
 
-def fetch_live() -> dict:
-    """Same shape as the log-based result, from the live endpoint."""
-    body = fetch_live_raw()
-    now = datetime.now(timezone.utc)
-    limits = body.get("rate_limit") or body.get("rate_limits") or {}
+def fetch_app_server() -> dict:
+    """Same shape as the log-based result plus "account", from `codex app-server`."""
+    limits_resp, account_resp = app_server_call([
+        ("account/rateLimits/read", None),
+        ("account/read", {}),
+    ])
+    if "error" in limits_resp:
+        raise CodexUsageError(_error_text(limits_resp))
+    snapshot = (limits_resp.get("result") or {}).get("rateLimits") or {}
     out = {}
     for key in ("primary", "secondary"):
-        w = _live_window(limits.get(f"{key}_window", limits.get(key)), now)
-        if w:
-            out[key] = w
+        w = snapshot.get(key)
+        if isinstance(w, dict) and w.get("usedPercent") is not None:
+            out[key] = {"used_percent": w["usedPercent"], "resets_at": w.get("resetsAt")}
     if "primary" not in out:
-        raise CodexUsageError("Unexpected live response shape (see `codex_usage.py --raw`)")
-    return {"rate_limits": out, "timestamp": now, "source": "live"}
+        raise CodexUsageError("Unexpected app-server response (see `codex_usage.py --raw`)")
+
+    account = None
+    acct = (account_resp.get("result") or {}).get("account") or {}
+    if acct.get("email"):
+        account = {"email": acct["email"], "plan": _plan_label(acct.get("planType"))}
+    return {"rate_limits": out, "timestamp": datetime.now(timezone.utc), "source": "app-server",
+            "account": account}
 
 
 def fetch_usage() -> dict:
-    """Return {"rate_limits": {...}, "timestamp": datetime | None, "source": "live" | "log"}.
+    """Return {"rate_limits", "timestamp", "source": "app-server" | "log", "account"?}.
 
-    When the live fetch fails and the logs are used, "live_error" holds the reason.
+    When the app-server fails and the logs are used, "live_error" holds the reason.
     """
     try:
-        return fetch_live()
+        return fetch_app_server()
     except CodexUsageError as live_e:
         try:
             data = fetch_log_usage()
@@ -197,7 +275,8 @@ def get_windows(data: dict) -> list[dict]:
 def main():
     if "--raw" in sys.argv:
         try:
-            print(json.dumps(fetch_live_raw(), indent=2, ensure_ascii=False))
+            for resp in app_server_call([("account/rateLimits/read", None), ("account/read", {})]):
+                print(json.dumps(resp, indent=2, ensure_ascii=False))
         except CodexUsageError as e:
             sys.exit(str(e))
         return
@@ -205,7 +284,7 @@ def main():
         data = fetch_usage()
     except CodexUsageError as e:
         sys.exit(str(e))
-    print(f"source: {data['source']}" + (f" (live failed: {data['live_error']})" if data.get("live_error") else ""))
+    print(f"source: {data['source']}" + (f" (app-server failed: {data['live_error']})" if data.get("live_error") else ""))
     for w in get_windows(data):
         print(f"{w['label']:<13}: {w['pct']:3.0f}%  resets {w['resets_at']}")
 

@@ -258,22 +258,26 @@ def _ago(ts: datetime) -> str:
 
 
 def _fetch(name: str):
-    """Return (windows, error, note) for one service."""
+    """Return (windows, error, note, account) for one service; account may be None."""
     try:
         if name == "Claude":
-            return claude_usage.get_windows(claude_usage.fetch_usage()), None, None
+            return claude_usage.get_windows(claude_usage.fetch_usage()), None, None, None
         data = codex_usage.fetch_usage()
         note = None
         if data.get("source") == "log" and data.get("timestamp"):
             note = f"Codexの値は最後に使った時点: {_ago(data['timestamp'])}"
-        return codex_usage.get_windows(data), None, note
+        return codex_usage.get_windows(data), None, note, data.get("account")
     except (claude_usage.UsageError, codex_usage.CodexUsageError) as e:
-        return [], f"{name}: {str(e).splitlines()[0]}", None
+        return [], f"{name}: {str(e).splitlines()[0]}", None, None
 
 
-def _account(name: str) -> str | None:
-    """'user@example.com · Pro' for the account the service is logged in with."""
-    account = (claude_usage if name == "Claude" else codex_usage).load_account()
+def _account(name: str, fetched: dict | None) -> str | None:
+    """'user@example.com · Pro' for the account the service is logged in with.
+
+    Uses the account returned with the usage (Codex app-server) when there is one,
+    otherwise reads it from the service's local login files.
+    """
+    account = fetched or (claude_usage if name == "Claude" else codex_usage).load_account()
     if not account:
         return None
     return account["email"] + (f" · {account['plan']}" if account["plan"] else "")
@@ -291,12 +295,12 @@ def collect(state_path: Path) -> dict:
     for name, rgb, outer_key, inner_key in SERVICES:
         if name not in enabled:
             continue
-        windows, error, note = _fetch(name)
+        windows, error, note, account = _fetch(name)
         windows, stale_since = _with_cache(state, name, windows, error)
         if not stale_since:  # never alert from cached values
             alerts += _check_notifications(state, name, windows)
         services.append({
-            "name": name, "rgb": rgb, "account": _account(name), "windows": windows, "error": error,
+            "name": name, "rgb": rgb, "account": _account(name, account), "windows": windows, "error": error,
             "stale_since": stale_since, "note": note,
             "outer": _remaining(windows, outer_key), "inner": _remaining(windows, inner_key),
         })
