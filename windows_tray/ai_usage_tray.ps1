@@ -33,6 +33,26 @@ if (-not $mutex.WaitOne(0)) { exit }
 $iconSize = [System.Windows.Forms.SystemInformation]::SmallIconSize.Width
 $labels = @{ refresh = "Refresh"; quit = "Quit"; updated = "Updated" }
 
+# Health record for install scripts and troubleshooting: written by this process only, so a
+# fresh last_success here means the tray itself fetched successfully
+$statusPath = Join-Path $env:LOCALAPPDATA "ai-usage-tools\tray_status.json"
+$script:lastSuccess = $null
+
+function Write-Status([string]$errorMessage) {
+    $status = [ordered]@{
+        pid          = $PID
+        mode         = $Mode
+        icon_size    = $iconSize
+        updated_at   = (Get-Date).ToString("o")
+        last_success = $(if ($script:lastSuccess) { $script:lastSuccess.ToString("o") } else { $null })
+        last_error   = $(if ($errorMessage) { $errorMessage } else { $null })
+    }
+    try {
+        New-Item -ItemType Directory -Force -Path (Split-Path $statusPath) | Out-Null
+        [System.IO.File]::WriteAllText($statusPath, ($status | ConvertTo-Json), (New-Object System.Text.UTF8Encoding($false)))
+    } catch {}
+}
+
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
 $showMenu = [System.Windows.Forms.NotifyIcon].GetMethod(
     "ShowContextMenu", [System.Reflection.BindingFlags]"NonPublic, Instance")
@@ -146,6 +166,7 @@ function Start-Fetch {
 
 function Show-Error([string]$message) {
     $script:lastError = $message
+    Write-Status $message
     foreach ($entry in $tray.Values) { Set-TrayText $entry ("Error: " + $message) }
     Build-Menu $script:lastSnap
 }
@@ -167,6 +188,8 @@ function Complete-Fetch {
 
     $script:lastSnap = $snap
     $script:lastError = $null
+    $script:lastSuccess = Get-Date
+    Write-Status $null
     if ($snap.labels) { $script:labels = @{ refresh = $snap.labels.refresh; quit = $snap.labels.quit; updated = $snap.labels.updated } }
     $names = @($snap.services | ForEach-Object { $_.name })
     foreach ($name in @($tray.Keys)) {

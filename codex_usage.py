@@ -124,8 +124,11 @@ def app_server_call(requests: list[tuple[str, dict | None]]) -> list[dict]:
     lines: queue.Queue = queue.Queue()
 
     def reader():  # readline() can't time out portably (no select() on Windows pipes)
-        for line in proc.stdout:
-            lines.put(line)
+        try:
+            for line in proc.stdout:
+                lines.put(line)
+        except (OSError, ValueError):  # pipe closed by the finally block below
+            pass
         lines.put(None)
 
     threading.Thread(target=reader, daemon=True).start()
@@ -176,6 +179,11 @@ def app_server_call(requests: list[tuple[str, dict | None]]) -> list[dict]:
             proc.wait(timeout=3)
         except subprocess.TimeoutExpired:
             proc.kill()
+            proc.wait()
+        try:
+            proc.stdout.close()
+        except OSError:
+            pass
 
 
 def _error_text(resp: dict) -> str:

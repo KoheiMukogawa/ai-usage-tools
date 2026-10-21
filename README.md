@@ -121,6 +121,7 @@ Windows で `windows_tray/ai_usage_tray.ps1` が変わったときだけ、イ�
 | Codex のメニューに「最後に使った時点」と出る | Codex CLI から取得できず、使用ログの値を出しています。`codex` コマンドが使えるか、`codex login status` でログイン中かを確認してください（`Login expired` なら `codex login` し直し） |
 | Codex の値がおかしい | `python3 codex_usage.py --raw` で Codex CLI の生のレスポンスを確認できます（メールアドレス等が含まれるので共有時は伏せてください） |
 | Windows で `取得エラー` | トレイのメニューにエラー内容が出ます。Windows（WSL なし）なら `python windows_tray\usage_json.py`、WSL なら `python3 windows_tray/usage_json.py` を直接実行するとエラーが見られます |
+| Windows でトレイが正しく動いているか知りたい | `%LOCALAPPDATA%\ai-usage-tools\tray_status.json` に、トレイ自身が最後に取得に成功した時刻（`last_success`）と直近のエラー（`last_error`）を書いています。インストール時もこれを見て動作確認しています |
 
 ## 仕組み
 
@@ -132,6 +133,14 @@ codex_usage.py ──┴─ usage_snapshot.py ─┬─ macos_menubar/ai_usage.1
 ```
 
 Python は標準ライブラリだけで動きます（追加の pip install 不要）。
+
+## 開発
+
+```sh
+python3 -m unittest discover -s tests -v   # 標準ライブラリのみ。ネットワークや実際のログインは使わない
+```
+
+GitHub Actions で、push のたびに Linux（Python 3.8 / 3.12）・macOS・Windows でテストし、シェルスクリプトと PowerShell スクリプトの構文・文字コードもチェックします。
 
 ## その他のツール
 

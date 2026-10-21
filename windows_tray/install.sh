@@ -76,6 +76,8 @@ python3 "$SCRIPT" > /dev/null
 
 stop_tray
 mkdir -p "$APP_DIR"
+STATUS="$APP_DIR/tray_status.json"
+rm -f "$STATUS"  # the tray rewrites it; a fresh last_success proves the tray itself works
 cp ai_usage_tray.ps1 "$APP_DIR/"
 printf 'CreateObject("WScript.Shell").Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""%s"" -Mode Wsl -Distro ""%s"" -Script ""%s""", 0, False\r\n' \
     "$TRAY_PS1_WIN" "$WSL_DISTRO_NAME" "$SCRIPT" | iconv -t UTF-16 > "$LAUNCHER"  # UTF-16 (BOM) so non-ASCII paths work
@@ -83,6 +85,37 @@ echo "==> インストール: $TRAY_PS1_WIN"
 echo "==> 自動起動を登録: $(wslpath -w "$LAUNCHER")"
 
 echo "Start-Process wscript.exe -ArgumentList '\"$(wslpath -w "$LAUNCHER")\"'" | run_ps
-echo "==> 起動しました。ログイン中のサービスごとにタスクトレイにリングが表示されます。"
-echo "    見当たらなければ、トレイの「^」の中を見るか、設定 → 個人用設定 → タスク バー →"
-echo "    「その他のシステム トレイ アイコン」で Windows PowerShell をオンにしてください。"
+echo "==> 起動しました。トレイの最初の取得を待っています..."
+
+# The tray writes tray_status.json after every fetch (see ai_usage_tray.ps1)
+for _ in $(seq 1 45); do
+    sleep 1
+    [ -f "$STATUS" ] || continue
+    result="$(python3 - "$STATUS" <<'EOF'
+import json, sys
+try:
+    status = json.load(open(sys.argv[1], encoding="utf-8-sig"))
+except (OSError, ValueError):
+    sys.exit(0)
+if status.get("last_success"):
+    print("ok")
+elif status.get("last_error"):
+    print("error:" + status["last_error"])
+EOF
+)"
+    case "$result" in
+        ok)
+            echo "==> 動作確認OK: トレイが使用量の取得に成功しました。"
+            echo "    ログイン中のサービスごとにタスクトレイにリングが表示されます。見当たらなければ、トレイの「^」の中を"
+            echo "    見るか、設定 → 個人用設定 → タスク バー →「その他のシステム トレイ アイコン」で Windows PowerShell をオンに。"
+            exit 0
+            ;;
+        error:*)
+            echo "!! トレイが取得に失敗しました: ${result#error:}" >&2
+            echo "   状態ファイル: $(wslpath -w "$STATUS")" >&2
+            exit 1
+            ;;
+    esac
+done
+echo "!! 45 秒待ってもトレイから応答がありません。状態ファイル: $(wslpath -w "$STATUS")" >&2
+exit 1

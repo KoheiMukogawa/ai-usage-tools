@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            python: "3.8"     # oldest supported (Ubuntu 20.04 / older WSL)
+          - os: ubuntu-latest
+            python: "3.12"
+          - os: macos-latest
+            python: "3.12"
+          - os: windows-latest
+            python: "3.12"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Unit tests
+        run: python -X dev -m unittest discover -s tests -v
+
+  shell-scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: bash -n
+        run: for f in macos_menubar/install.sh windows_tray/install.sh; do bash -n "$f"; done
+      - name: shellcheck (errors only)
+        run: shellcheck -S error macos_menubar/install.sh windows_tray/install.sh
+
+  powershell-scripts:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse with Windows PowerShell 5.1 and check encodings
+        shell: powershell
+        run: |
+          $failed = $false
+          foreach ($f in "windows_tray/ai_usage_tray.ps1", "windows_tray/install.ps1") {
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $f).ProviderPath, [ref]$null, [ref]$errors)
+            if ($errors) { $errors | ForEach-Object { Write-Host "$f : $_" }; $failed = $true }
+          }
+          # 5.1 misreads BOM-less UTF-8: the tray script must stay ASCII, install.ps1 must keep its BOM
+          $tray = [IO.File]::ReadAllBytes((Resolve-Path "windows_tray/ai_usage_tray.ps1").ProviderPath)
+          if ($tray | Where-Object { $_ -gt 127 }) { Write-Host "ai_usage_tray.ps1 must be ASCII-only"; $failed = $true }
+          $inst = [IO.File]::ReadAllBytes((Resolve-Path "windows_tray/install.ps1").ProviderPath)
+          if (-not ($inst[0] -eq 0xEF -and $inst[1] -eq 0xBB -and $inst[2] -eq 0xBF)) { Write-Host "install.ps1 needs a UTF-8 BOM"; $failed = $true }
+          if ($failed) { exit 1 }
+          Write-Host "PowerShell scripts OK"
