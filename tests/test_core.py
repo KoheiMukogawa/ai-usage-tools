@@ -251,7 +251,8 @@ class PollingTest(unittest.TestCase):
             return results.pop(0)
         return calls, fetch
 
-    def test_codex_reuses_recent_values_between_fetches(self):
+    @mock.patch.dict(us.FETCH_INTERVAL, {"Codex": 290})
+    def test_interval_reuses_recent_values_between_fetches(self):
         state = {}
         ok = ([window("primary", 30)], None, "note", {"email": "a@example.com", "plan": None}, None)
         calls, fetch = self.fake_fetch([ok, ok])
@@ -266,14 +267,15 @@ class PollingTest(unittest.TestCase):
             us._service_data(state, "Codex")
             self.assertEqual(len(calls), 2)
 
-    def test_claude_fetches_every_time(self):
-        state = {}
-        ok = ([window()], None, None, None, None)
-        calls, fetch = self.fake_fetch([ok, ok])
-        with mock.patch.object(us, "_fetch", side_effect=fetch):
-            us._service_data(state, "Claude")
-            us._service_data(state, "Claude")
-        self.assertEqual(len(calls), 2)
+    def test_every_service_fetches_every_run_by_default(self):
+        for name in ("Claude", "Codex"):
+            state = {}
+            ok = ([window()], None, None, None, None)
+            calls, fetch = self.fake_fetch([ok, ok])
+            with mock.patch.object(us, "_fetch", side_effect=fetch):
+                us._service_data(state, name)
+                us._service_data(state, name)
+            self.assertEqual(len(calls), 2, name)
 
     def test_rate_limit_backs_off_with_cached_values(self):
         state = {}

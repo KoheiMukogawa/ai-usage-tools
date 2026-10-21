@@ -35,9 +35,9 @@ DASHES = 12                                # dashed ring = no data at all
 LOW_REMAINING = 20
 
 CACHE_MAX_AGE = timedelta(hours=3)
-# Minimum seconds between real fetches; in between the last good values are reused as-is.
-# Codex spawns `codex app-server` (~2s, plus its own network calls), so it is asked less often.
-FETCH_INTERVAL = {"Claude": 0, "Codex": 290}
+# Minimum seconds between real fetches per service (0 = every run); in between, the last good
+# values are reused as-is. Both are fetched every run: Codex costs ~2s for `codex app-server`.
+FETCH_INTERVAL = {"Claude": 0, "Codex": 0}
 NOTIFY_THRESHOLDS = (20, 5)  # notify when remaining % drops below these
 NOTIFY_HYSTERESIS = 5        # re-arm once remaining climbs this far back above a threshold
 WINDOW_NAMES = {
