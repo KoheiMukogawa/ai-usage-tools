@@ -2,8 +2,8 @@
 #   install.cmd をダブルクリック、または
 #   powershell -ExecutionPolicy Bypass -File windows_tray\install.ps1              インストールして起動（ログオン時に自動起動）
 #   powershell -ExecutionPolicy Bypass -File windows_tray\install.ps1 -Uninstall   停止して自動起動を解除
-# ai_usage_tray.ps1 を %LOCALAPPDATA%\ai-usage-tools にコピーし、スタートアップに非表示で起動する
-# ランチャー (.vbs) を置く。ai_usage_tray.ps1 を更新したら再実行すること。
+# スタートアップに、このフォルダの ai_usage_tray.ps1 を非表示で起動するランチャー (.vbs) を置く。
+# コピーせずにこの場所から起動するので、git pull するだけで更新が反映される（フォルダは動かさないこと）。
 # このファイルは日本語を含むので UTF-8 (BOM 付き) で保存すること（PowerShell 5.1 対策）。
 param([switch]$Uninstall)
 
@@ -13,7 +13,7 @@ $ProgressPreference = "SilentlyContinue"
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $script = Join-Path $here "usage_json.py"
 $appDir = Join-Path ([Environment]::GetFolderPath("LocalApplicationData")) "ai-usage-tools"
-$trayPs1 = Join-Path $appDir "ai_usage_tray.ps1"
+$trayPs1 = Join-Path $here "ai_usage_tray.ps1"
 $launcher = Join-Path ([Environment]::GetFolderPath("Startup")) "AI Usage Tray.vbs"
 
 function Stop-Tray {
@@ -67,14 +67,14 @@ if ($LASTEXITCODE -ne 0) {
 
 Stop-Tray
 New-Item -ItemType Directory -Force -Path $appDir | Out-Null
+Remove-Item (Join-Path $appDir "ai_usage_tray.ps1") -ErrorAction SilentlyContinue  # copy left by older versions
 $status = Join-Path $appDir "tray_status.json"
 Remove-Item $status -ErrorAction SilentlyContinue  # the tray rewrites it; a fresh last_success proves it works
-Copy-Item (Join-Path $here "ai_usage_tray.ps1") $trayPs1 -Force
 # UTF-16 で書くとユーザー名などに日本語を含むパスでも wscript が正しく読める
 $cmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""$trayPs1"" -Mode Native -Python ""$python"" -Script ""$script"""
 $vbsCmd = $cmd.Replace('"', '""')  # VBScript escapes quotes by doubling (kept out of the "..." string on purpose)
 Set-Content -Path $launcher -Encoding Unicode -Value ('CreateObject("WScript.Shell").Run "' + $vbsCmd + '", 0, False')
-Write-Host "==> インストール: $trayPs1"
+Write-Host "==> トレイ本体: $trayPs1"
 Write-Host "==> 自動起動を登録: $launcher"
 
 Start-Process wscript.exe -ArgumentList """$launcher"""
