@@ -47,7 +47,7 @@ git clone https://github.com/KoheiMukogawa/ai-usage-tools.git ~/ai-usage-tools
 ~/ai-usage-tools/macos_menubar/install.sh
 ```
 
-途中で Keychain へのアクセス許可を求められたら「常に許可」を選んでください（Claude Code のログイン情報は Keychain にあります）。
+途中で Keychain へのアクセス許可を求められたら「常に許可」を選んでください（Claude Code のログイン情報は Keychain にあります）。SwiftBar はログイン項目に追加するので、Mac を再起動しても自動で表示されます（「System Events を制御しようとしています」と出たら「OK」）。
 
 ### Windows（WSL なし）
 
@@ -125,6 +125,7 @@ Windows（WSL）で `windows_tray/ai_usage_tray.ps1` が変わったときだけ
 
 | 症状 | 原因と対処 |
 |---|---|
+| Mac でメニューバーにリングが無い | SwiftBar が起動していません。`open -a SwiftBar` で起動し、`install.sh` を再実行するとログイン項目にも追加されます |
 | Claude が点線リング / `Token expired` | Claude Code のトークンは Claude Code 起動時にしか更新されません。Claude Code を一度起動してください |
 | Codex のメニューに「最後に使った時点」と出る | Codex CLI から取得できず、使用ログの値を出しています。`codex` コマンドが使えるか、`codex login status` でログイン中かを確認してください（`Login expired` なら `codex login` し直し） |
 | Codex の値がおかしい | `python3 codex_usage.py --raw` で Codex CLI の生のレスポンスを確認できます（メールアドレス等が含まれるので共有時は伏せてください） |

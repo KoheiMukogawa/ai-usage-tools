@@ -60,4 +60,15 @@ echo "==> 動作確認"
 
 open -a SwiftBar
 open "swiftbar://refreshallplugins" 2>/dev/null || true
+
+# 再起動後も表示されるよう、SwiftBar をログイン項目に入れる（初回は System Events の操作許可を求められる）
+SWIFTBAR_APP="/Applications/SwiftBar.app"
+[ -d "$SWIFTBAR_APP" ] || SWIFTBAR_APP="$HOME/Applications/SwiftBar.app"
+if osascript -e 'tell application "System Events" to get the name of every login item' 2>/dev/null | grep -q 'SwiftBar'; then
+    echo "==> SwiftBar はログイン時に起動する設定です"
+elif osascript -e "tell application \"System Events\" to make login item at end with properties {path:\"$SWIFTBAR_APP\", hidden:false}" >/dev/null 2>&1; then
+    echo "==> SwiftBar をログイン項目に追加しました"
+else
+    echo "==> SwiftBar をログイン項目に追加できませんでした。SwiftBar の Preferences で「Launch at Login」をオンにしてください" >&2
+fi
 echo "==> 完了。メニューバーにリングが表示されます。"
